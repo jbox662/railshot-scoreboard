@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>RailShot TV - Remote Scoreboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:linear-gradient(135deg,#0d5833 0%,#0a4426 100%);color:#fff;height:100vh;width:100vw;overflow:hidden;position:fixed;touch-action:manipulation}
+.header{position:fixed;top:0;left:0;right:0;height:50px;background:rgba(0,0,0,.3);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:space-between;padding:0 20px;z-index:100}
+.status{display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.3);padding:6px 12px;border-radius:20px;font-size:13px}
+.dot{width:10px;height:10px;background:#4ade80;border-radius:50%;box-shadow:0 0 10px rgba(74,222,128,.6);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.board{display:flex;height:100vh;padding-top:50px}
+.side{flex:1;display:flex;flex-direction:column}
+.tap{flex:1;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .1s}
+.tap:active{background:rgba(0,0,0,.2)}
+.tap.inc{background:rgba(0,0,0,.05)}
+.hint{font-size:40px;opacity:.3;pointer-events:none}
+.score-area{height:50vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+.name{font-size:24px;font-weight:700;margin-bottom:10px;text-shadow:0 2px 4px rgba(0,0,0,.5)}
+.score{font-size:140px;font-weight:900;line-height:1;text-shadow:0 0 20px currentColor,0 4px 8px rgba(0,0,0,.8);margin:20px 0}
+.side.p1 .score{color:#06b6d4}
+.side.p2 .score{color:#fb923c}
+.frames{display:flex;align-items:center;gap:10px;background:rgba(0,0,0,.3);padding:10px 20px;border-radius:25px;font-size:18px;margin-bottom:10px}
+.btn-win{background:linear-gradient(135deg,#06b6d4 0%,#0891b2 100%);border:none;color:#fff;padding:12px 24px;border-radius:25px;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 4px 15px rgba(6,182,212,.4);transition:transform .1s}
+.btn-win:active{transform:scale(.95)}
+.p2 .btn-win{background:linear-gradient(135deg,#fb923c 0%,#f97316 100%)}
+.div{width:2px;background:linear-gradient(to bottom,rgba(255,255,255,.1),rgba(255,255,255,.3),rgba(255,255,255,.1))}
+.error{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(239,68,68,.9);color:#fff;padding:20px;border-radius:12px;font-size:16px;text-align:center;display:none}
+</style>
+</head>
+<body>
+<div class="header">
+<div class="status"><div class="dot"></div><span>Connected</span></div>
+</div>
+<div class="board">
+<div class="side p1">
+<div class="tap inc" onclick="tap(1,1)"><div class="hint">▲</div></div>
+<div class="score-area">
+<div class="name" id="n1">Player 1</div>
+<div class="score" id="s1">0</div>
+<div class="frames">🏆 <span id="f1">0</span> frames</div>
+<button class="btn-win" onclick="win(1)">🏁 Win Frame</button>
+</div>
+<div class="tap" onclick="tap(1,-1)"><div class="hint">▼</div></div>
+</div>
+<div class="div"></div>
+<div class="side p2">
+<div class="tap inc" onclick="tap(2,1)"><div class="hint">▲</div></div>
+<div class="score-area">
+<div class="name" id="n2">Player 2</div>
+<div class="score" id="s2">0</div>
+<div class="frames">🏆 <span id="f2">0</span> frames</div>
+<button class="btn-win" onclick="win(2)">🏁 Win Frame</button>
+</div>
+<div class="tap" onclick="tap(2,-1)"><div class="hint">▼</div></div>
+</div>
+</div>
+<div class="error" id="err">Session not found</div>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyB1FidXv7pYnIaKjDQAm9MDtGa1g-MCJ08",
+  projectId: "railshot-tv",
+  databaseURL: "https://railshot-tv-default-rtdb.firebaseio.com"
+};
+
+const session = new URLSearchParams(window.location.search).get('session');
+if (!session) {
+  document.getElementById('err').style.display = 'block';
+  throw new Error('No session ID');
+}
+
+const dbURL = `${firebaseConfig.databaseURL}/sessions/${session}/state.json`;
+let localState = {};
+
+window.tap = function(player, delta) {
+  if (navigator.vibrate) navigator.vibrate(10);
+  const key = `player${player}`;
+  const current = localState[key]?.score || 0;
+  update({[key]: {...(localState[key] || {}), score: Math.max(0, current + delta)}});
+};
+
+window.win = function(player) {
+  if (navigator.vibrate) navigator.vibrate([50,50,50]);
+  const key = `player${player}`;
+  const current = localState[key]?.framesWon || 0;
+  update({[key]: {...(localState[key] || {}), framesWon: current + 1, score: 0}});
+};
+
+function update(data) {
+  fetch(dbURL, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({...data, timestamp: Date.now()})
+  }).then(() => load());
+}
+
+function load() {
+  fetch(dbURL)
+    .then(r => r.json())
+    .then(d => {
+      if (!d) return;
+      localState = d;
+      document.getElementById('n1').textContent = d.player1?.name || 'Player 1';
+      document.getElementById('s1').textContent = d.player1?.score || 0;
+      document.getElementById('f1').textContent = d.player1?.framesWon || 0;
+      document.getElementById('n2').textContent = d.player2?.name || 'Player 2';
+      document.getElementById('s2').textContent = d.player2?.score || 0;
+      document.getElementById('f2').textContent = d.player2?.framesWon || 0;
+    })
+    .catch(() => document.getElementById('err').style.display = 'block');
+}
+
+setInterval(load, 1000);
+load();
+</script>
+</body>
+</html>
